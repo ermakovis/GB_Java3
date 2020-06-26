@@ -4,16 +4,21 @@ import Server.ServerSettings;
 import library.Library;
 import network.*;
 
+import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.text.DateFormat;
 import java.text.SimpleDateFormat;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.List;
 import java.util.Vector;
 
 public class ServerEngine implements ServerSocketThreadListener, SocketThreadListener {
 
     ServerListener listener;
     private Vector<SocketThread> clients = new Vector<>();
+    private List<String> badWords = new ArrayList<>();
 
     public ServerEngine(ServerListener listener) {
         this.listener = listener;
@@ -52,6 +57,29 @@ public class ServerEngine implements ServerSocketThreadListener, SocketThreadLis
     public void onServerStart(ServerSocketThread thread) {
         putLog("Server started");
         SqlClient.connect();
+        init_censorship();
+    }
+
+    private void init_censorship() {
+        try (BufferedReader br = new BufferedReader(new FileReader(ServerSettings.CENSORSHIP_FILE))) {
+            while (br.ready()) {
+                badWords.add(br.readLine());
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
+    private String apply_censorship(String message) {
+        String ret = null;
+        for (String badWord : badWords) {
+            if (message.contains(badWord)) {
+                char[] replacement = new char[badWord.length()];
+                Arrays.fill(replacement, '#');
+                ret = message.replace(badWord, new String(replacement));
+            }
+        }
+        return ret == null ? message : ret;
     }
 
     @Override
@@ -140,6 +168,7 @@ public class ServerEngine implements ServerSocketThreadListener, SocketThreadLis
             ClientThread oldClient = findClientByNickname(nickname);
             newClient.authAccept(nickname);
             if (oldClient == null) {
+                init_history(newClient, login);
                 sendToAllAuthorizedClients(Library.getTypeBroadcast("Server", nickname + " connected"));
             } else {
                 oldClient.reconnect();
@@ -150,22 +179,44 @@ public class ServerEngine implements ServerSocketThreadListener, SocketThreadLis
         sendToAllAuthorizedClients(Library.getUserList(getUsers()));
     }
 
+    private static void init_history(ClientThread client, String login) {
+        try (BufferedReader br = new BufferedReader(new FileReader(ServerSettings.LOG_PATH + client.getNickname() + ".txt"))) {
+            while (br.ready()) {
+                client.sendMessage(br.readLine());
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+    }
+
     private void handleNonAuthMessage(ClientThread client, String msg) {
         String[] arr = msg.split(Library.DELIMITER);
         String msgType = arr[0];
+        String message = apply_censorship(arr[1]);
         switch (msgType) {
             case Library.CLIENT_MSG_BROADCAST:
-                sendToAllAuthorizedClients(Library.getTypeBroadcast(
-                        client.getNickname(), arr[1]));
+                sendBroadcast(client, message);
                 break;
             case Library.NICKNAME_CHANGE:
-                SqlClient.changeNickName(arr[1], arr[2]);
+                SqlClient.changeNickName(message, arr[2]);
                 client.setNickname(arr[2]);
                 sendToAllAuthorizedClients(Library.getUserList(getUsers()));
                 break;
             default:
                 client.sendMessage(Library.getMsgFormatError(msg));
         }
+    }
+
+    private void sendBroadcast(ClientThread client, String text) {
+        String message = Library.getTypeBroadcast(client.getNickname(), text);
+        sendToAllAuthorizedClients(message);
+        message += "\n";
+        try (FileOutputStream fis = new FileOutputStream(ServerSettings.LOG_PATH + client.getNickname() + ".txt", true)){
+            fis.write(message.getBytes());
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
     }
 
     private void sendToAllAuthorizedClients(String msg) {
