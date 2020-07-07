@@ -1,6 +1,11 @@
 Lesson*/.idea/
 Lesson*/out/
+*/target/*
 *.iml
+*.xml
+*.properties
 Lesson2/MyChat/out/
 
 Lesson2/MyChat/.idea/
+
+Lesson2/MyChat/MyServer/target/

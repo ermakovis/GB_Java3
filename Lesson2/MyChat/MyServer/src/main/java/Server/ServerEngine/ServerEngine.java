@@ -7,46 +7,40 @@ import network.*;
 import java.io.*;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.text.DateFormat;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.List;
 import java.util.Vector;
+import org.apache.log4j.Logger;
+import org.apache.log4j.LogManager;
 
 public class ServerEngine implements ServerSocketThreadListener, SocketThreadListener {
 
     ServerListener listener;
-    private Vector<SocketThread> clients = new Vector<>();
-    private List<String> badWords = new ArrayList<>();
+    private static final Logger logger = LogManager.getLogger(ServerEngine.class);
+    private ServerSocketThread server;
+    private final Vector<SocketThread> clients = new Vector<>();
+    private final List<String> badWords = new ArrayList<>();
+
 
     public ServerEngine(ServerListener listener) {
         this.listener = listener;
     }
-
-    private ServerSocketThread server;
-
 
 
     public void start(int port) {
         if (server == null || !server.isAlive())
             server = new ServerSocketThread(this, "Server", port, 2000);
         else
-            putLog("Server already started");
+            logger.info("Server already started");
     }
 
     public void stop() {
         if (server == null || !server.isAlive()) {
-            putLog("Server is not running");
+            logger.error("Server is not running");
         } else {
             server.interrupt();
         }
-    }
-
-    private void putLog(String msg) {
-        msg = ServerSettings.DATE_FORMAT.format(System.currentTimeMillis()) +
-                Thread.currentThread().getName() + ": " + msg;
-        listener.onChatServerMessage(msg);
     }
 
     /**
@@ -55,18 +49,20 @@ public class ServerEngine implements ServerSocketThreadListener, SocketThreadLis
 
     @Override
     public void onServerStart(ServerSocketThread thread) {
-        putLog("Server started");
+        logger.info("Server started");
         SqlClient.connect();
         init_censorship();
     }
 
     private void init_censorship() {
+
         try (BufferedReader br = new BufferedReader(new FileReader(ServerSettings.CENSORSHIP_FILE))) {
             while (br.ready()) {
                 badWords.add(br.readLine());
             }
+            logger.info("init_censorship - OK");
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error(e);
         }
     }
 
@@ -84,7 +80,7 @@ public class ServerEngine implements ServerSocketThreadListener, SocketThreadLis
 
     @Override
     public void onServerStop(ServerSocketThread thread) {
-        putLog("Server stopped");
+        logger.info("Server stopped");
         SqlClient.disconnect();
         for (int i = 0; i < clients.size(); i++) {
             clients.get(i).close();
@@ -93,17 +89,17 @@ public class ServerEngine implements ServerSocketThreadListener, SocketThreadLis
 
     @Override
     public void onServerCreated(ServerSocketThread thread, ServerSocket server) {
-        putLog("Server created");
+        logger.info("Server created");
     }
 
     @Override
     public void onServerTimeout(ServerSocketThread thread, ServerSocket server) {
-        //putLog("Server timeout");
+        logger.error("Server timeout");
     }
 
     @Override
     public void onSocketAccepted(ServerSocketThread thread, ServerSocket server, Socket socket) {
-        putLog("Client connected");
+        logger.info("Client connected");
         String name = "SocketThread " + socket.getInetAddress() + ":" + socket.getPort();
         new ClientThread(name, this, socket);
     }
@@ -120,7 +116,7 @@ public class ServerEngine implements ServerSocketThreadListener, SocketThreadLis
 
     @Override
     public synchronized void onSocketStart(SocketThread thread, Socket socket) {
-        putLog("Client connected");
+        logger.info("Client connected");
     }
 
     @Override
@@ -136,7 +132,7 @@ public class ServerEngine implements ServerSocketThreadListener, SocketThreadLis
 
     @Override
     public synchronized void onSocketReady(SocketThread thread, Socket socket) {
-        putLog("Client is ready to chat");
+        logger.info("Client is ready to chat");
         clients.add(thread);
     }
 
@@ -153,7 +149,6 @@ public class ServerEngine implements ServerSocketThreadListener, SocketThreadLis
     private void handleAuthMessage(ClientThread newClient, String msg) {
         String[] arr = msg.split(Library.DELIMITER);
 
-        // [/auth_request, login, password]
         if (arr.length != 3 || !arr[0].equals(Library.AUTH_REQUEST)) {
             newClient.msgFormatError(msg);
             return;
@@ -185,7 +180,7 @@ public class ServerEngine implements ServerSocketThreadListener, SocketThreadLis
                 client.sendMessage(br.readLine());
             }
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error(e);
         }
     }
 
@@ -214,7 +209,7 @@ public class ServerEngine implements ServerSocketThreadListener, SocketThreadLis
         try (FileOutputStream fis = new FileOutputStream(ServerSettings.LOG_PATH + client.getNickname() + ".txt", true)){
             fis.write(message.getBytes());
         } catch (Exception e) {
-            e.printStackTrace();
+            logger.error(e);
         }
 
     }
